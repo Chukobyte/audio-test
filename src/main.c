@@ -13,9 +13,6 @@
 #define LOW_PASS_ALPHA 0.05f
 #define HIGH_PASS_ALPHA 0.5f
 
-static float input_buffer[BUFFER_SIZE];
-static size_t input_offset = 0;
-
 typedef enum FilterMode {
     FILTER_NONE,
     FILTER_LOW_PASS,
@@ -27,14 +24,14 @@ static bool debug_enabled = false;
 
 static pthread_mutex_t filter_mutex;
 
-float low_pass_filter(float input, float* prev_output, float alpha) {
-    const float output = alpha * input + (1.0f - alpha) * (*prev_output);
+float low_pass_filter(float input, float* prev_output) {
+    const float output = LOW_PASS_ALPHA * input + (1.0f - LOW_PASS_ALPHA) * (*prev_output);
     *prev_output = output;
     return output;
 }
 
-float high_pass_filter(float input, float* prev_input, float* prev_output, float alpha) {
-    const float output = alpha * (*prev_output + input - *prev_input);
+float high_pass_filter(float input, float* prev_input, float* prev_output) {
+    const float output = HIGH_PASS_ALPHA * (*prev_output + input - *prev_input);
     *prev_output = output;
     *prev_input = input;
     return output;
@@ -52,7 +49,7 @@ void audio_data_callback(ma_device* device, void* output, const void* input, ma_
 
     pthread_mutex_lock(&filter_mutex);
     const FilterMode filter = current_filter;
-    const bool local_debug = debug_enabled;
+    const bool is_debug_enabled = debug_enabled;
     pthread_mutex_unlock(&filter_mutex);
 
     for (ma_uint32 i = 0; i < frame_count; ++i) {
@@ -61,10 +58,10 @@ void audio_data_callback(ma_device* device, void* output, const void* input, ma_
 
         switch (filter) {
             case FILTER_LOW_PASS:
-                y = low_pass_filter(x, &lp_prev_output, LOW_PASS_ALPHA);
+                y = low_pass_filter(x, &lp_prev_output);
                 break;
             case FILTER_HIGH_PASS:
-                y = high_pass_filter(x, &hp_prev_input, &hp_prev_output, HIGH_PASS_ALPHA);
+                y = high_pass_filter(x, &hp_prev_input, &hp_prev_output);
                 break;
             case FILTER_NONE:
             default:
@@ -73,9 +70,8 @@ void audio_data_callback(ma_device* device, void* output, const void* input, ma_
         }
 
         sample_out[i] = y;
-        input_buffer[input_offset++ % BUFFER_SIZE] = y;
 
-        if (local_debug && fabsf(x) > 0.1f) {
+        if (is_debug_enabled && fabsf(x) > 0.1f) {
             switch (filter) {
                 case FILTER_LOW_PASS:
                     printf("[LPF] raw: %.3f, filtered: %.3f, prev: %.3f\n", x, y, lp_prev_output);
